@@ -1,5 +1,5 @@
 # Use the official Bun image as base
-FROM oven/bun AS builder
+FROM oven/bun:debian AS builder
 
 # Install system dependencies including Python and build tools
 RUN apt-get update && apt-get install -y \
@@ -27,7 +27,7 @@ COPY . .
 RUN bun build ./src/index.ts --outdir ./dist --target bun
 
 # Create production image
-FROM oven/bun:1.0.30 AS production
+FROM oven/bun:debian AS production
 
 # Install only FFmpeg in production image
 RUN apt-get update && apt-get install -y \
