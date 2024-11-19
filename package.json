@@ -1,0 +1,24 @@
+{
+  "name": "dc-bots",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/dev.ts",
+    "dev:debug": "LOG_LEVEL=debug tsx watch src/dev.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@ai-sdk/groq": "^1.0.0",
+    "@discordjs/voice": "^0.18.0",
+    "@t3-oss/env-core": "^0.11.1",
+    "ai": "^4.0.0",
+    "discord.js": "^14.16.3",
+    "fast-xml-parser": "^4.5.0",
+    "yt-search": "^2.12.1",
+    "ytdl-core": "^4.11.5",
+    "zod": "^3.23.8"
+  }
+}
