@@ -1,9 +1,8 @@
-import { z } from 'zod'
+import ffmpeg from '@ffmpeg-installer/ffmpeg'
 import { DiscordAIBot } from './bot/DiscordAIBot'
-import { createBotFunction, type BotConfig } from './types/config'
 import { env } from './env'
 import { createMusicPlugin } from './plugins/MusicPlugin'
-import ffmpeg from '@ffmpeg-installer/ffmpeg'
+import type { BotConfig } from './types/config'
 
 process.env.FFMPEG_PATH = ffmpeg.path
 
