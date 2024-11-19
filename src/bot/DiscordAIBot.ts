@@ -15,7 +15,6 @@ type ConversationState = {
   lastInteractionTime: number
   context: string
   channelId: string
-  userId: string
 }
 
 export class DiscordAIBot {
@@ -26,7 +25,7 @@ export class DiscordAIBot {
   private voiceConnections: Map<string, VoiceConnection> = new Map()
   private conversations: Map<string, ConversationState> = new Map()
   private readonly CONVERSATION_TIMEOUT = 5 * 60 * 1000 // 5 minutes
-  private readonly MAX_CONTEXT_LENGTH = 5000
+  private readonly MAX_CONTEXT_LENGTH = 12000
 
   constructor(props: DiscordAIBotProps) {
     this.logger = new Logger({ context: 'DiscordAIBot' })
@@ -121,14 +120,12 @@ export class DiscordAIBot {
   private async handleMessage(message: Message): Promise<void> {
     if (message.author.bot) return
 
-    // Clean up expired conversations
     this.cleanExpiredConversations()
 
-    const conversationKey = this.getConversationKey(message.channelId, message.author.id)
+    const conversationKey = this.getConversationKey(message.channelId)
     const conversation = this.conversations.get(conversationKey)
     const currentTime = Date.now()
 
-    // Check if we're in an active conversation or if the message is relevant
     const isInConversation =
       conversation && currentTime - conversation.lastInteractionTime < this.CONVERSATION_TIMEOUT
     const isRelevant = isInConversation || (await this.checkMessageRelevance(message.content))
@@ -138,17 +135,15 @@ export class DiscordAIBot {
       return
     }
 
-    // Update or create conversation state
     const updatedContext = this.updateConversationContext(
       conversation?.context || '',
-      message.content,
+      `${message.author.username}: ${message.content}`,
     )
 
     this.conversations.set(conversationKey, {
       lastInteractionTime: currentTime,
       context: updatedContext,
       channelId: message.channelId,
-      userId: message.author.id,
     })
 
     this.logger.debug('Received message', {
@@ -220,17 +215,15 @@ export class DiscordAIBot {
         processingTime: Date.now() - message.createdTimestamp,
       })
 
-      // Update conversation context with bot's response
       const updatedContextWithResponse = this.updateConversationContext(
         this.conversations.get(conversationKey)?.context || '',
-        `Bot: ${text}`,
+        `${this.config.name}: ${text}`,
       )
 
       this.conversations.set(conversationKey, {
         lastInteractionTime: currentTime,
         context: updatedContextWithResponse,
         channelId: message.channelId,
-        userId: message.author.id,
       })
     } catch (error) {
       this.logger.error('Error processing message', {
@@ -304,15 +297,14 @@ export class DiscordAIBot {
     }
   }
 
-  private getConversationKey(channelId: string, userId: string): string {
-    return `${channelId}-${userId}`
+  private getConversationKey(channelId: string): string {
+    return channelId
   }
 
   private updateConversationContext(previousContext: string, newMessage: string): string {
     const contextParts = previousContext ? previousContext.split('\n') : []
     contextParts.push(newMessage)
 
-    // Keep only last few messages that fit within maxContextLength
     while (contextParts.join('\n').length > this.MAX_CONTEXT_LENGTH && contextParts.length > 0) {
       contextParts.shift()
     }
