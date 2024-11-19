@@ -3,6 +3,9 @@ import { DiscordAIBot } from './bot/DiscordAIBot'
 import { createBotFunction, type BotConfig } from './types/config'
 import { env } from './env'
 import { createMusicPlugin } from './plugins/MusicPlugin'
+import ffmpeg from '@ffmpeg-installer/ffmpeg'
+
+process.env.FFMPEG_PATH = ffmpeg.path
 
 const botConfig: BotConfig = {
   name: 'Meky Žbirka',
