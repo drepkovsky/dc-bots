@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "dev:debug": "LOG_LEVEL=debug bun run --watch src/dev.ts",
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --minify",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --minify -e ffmpeg-static",
     "start": "bun run ./dist/index.js"
   },
   "devDependencies": {

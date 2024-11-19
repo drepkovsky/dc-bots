@@ -21,7 +21,7 @@ RUN bun install --frozen-lockfile
 COPY . .
 
 # Build the application
-RUN bun build ./src/index.ts --outdir ./dist --target bun --minify
+RUN bun run build
 
 # Production stage
 FROM oven/bun:1-slim AS production
