@@ -1,4 +1,4 @@
-# Use the official Bun image as base
+# Build stage - používame Bun pre rýchly build
 FROM oven/bun:1.0.30 as builder
 
 # Install system dependencies including Python and build tools
@@ -17,17 +17,17 @@ WORKDIR /app
 # Copy package files
 COPY package.json bun.lockb ./
 
-# Install dependencies
+# Install dependencies using Bun
 RUN bun install --frozen-lockfile
 
 # Copy source code
 COPY . .
 
-# Build the application
-RUN bun build ./src/index.ts --outdir ./dist --target bun
+# Build the application with Node.js target
+RUN bun build ./src/index.ts --outdir ./dist --target node
 
-# Create production image
-FROM oven/bun:1.0.30
+# Production stage
+FROM node:20-slim as production
 
 # Install only FFmpeg in production image
 RUN apt-get update && apt-get install -y \
@@ -38,11 +38,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy only the built bundle
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist/index.js ./index.js
 
 # Set environment variables
 ENV NODE_ENV=production
 ENV LOG_LEVEL=info
 
-# Run the built application
-CMD ["bun", "run", "./dist/index.js"]
+# Run the application using Node.js
+CMD ["node", "index.js"]
