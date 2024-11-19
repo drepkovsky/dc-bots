@@ -1,5 +1,5 @@
 # Build stage - používame Bun pre rýchly build
-FROM oven/bun:1.0.30 as builder
+FROM oven/bun:debian as builder
 
 # Install system dependencies including Python and build tools
 RUN apt-get update && apt-get install -y \
