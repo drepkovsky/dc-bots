@@ -1,20 +1,16 @@
-# Use the official Bun image as base
-FROM oven/bun:debian AS builder
+# Build stage
+FROM oven/bun:1 AS builder
 
-# Install system dependencies including Python and build tools
+# Install Python and build dependencies
 RUN apt-get update && apt-get install -y \
-    ffmpeg \
     python3 \
     python-is-python3 \
-    make \
-    gcc \
-    g++ \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files first to leverage layer caching
 COPY package.json bun.lockb ./
 
 # Install dependencies
@@ -24,25 +20,26 @@ RUN bun install --frozen-lockfile
 COPY . .
 
 # Build the application
-RUN bun build ./src/index.ts --outdir ./dist --target bun
+RUN bun build ./src/index.ts --outdir ./dist --target bun --minify
 
-# Create production image
-FROM oven/bun:debian AS production
+# Production stage
+FROM oven/bun:1-slim AS production
 
-# Install only FFmpeg in production image
+# Install FFmpeg and Python for runtime dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy only the built bundle
+# Copy only necessary files from builder
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./
 
-# Set environment variables
-ENV NODE_ENV=production
-ENV LOG_LEVEL=info
+# Set production environment
+ENV NODE_ENV=production \
+    LOG_LEVEL=info \
+    BUN_ENV=production
 
-# Run the built application
+# Run the application
 CMD ["bun", "run", "./dist/index.js"]

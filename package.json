@@ -4,11 +4,13 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "dev:debug": "LOG_LEVEL=debug bun run --watch src/dev.ts"
+    "dev:debug": "LOG_LEVEL=debug bun run --watch src/dev.ts",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --minify",
+    "start": "bun run ./dist/index.js"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.6.3"
+    "bun-types": "latest",
+    "typescript": "^5.3.3"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.0",
@@ -17,12 +19,9 @@
     "@discordjs/voice": "^0.18.0",
     "@t3-oss/env-core": "^0.11.1",
     "ai": "^4.0.0",
-    "discord.js": "^14.16.3",
-    "fast-xml-parser": "^4.5.0",
+    "discord.js": "^14.14.1",
     "play-dl": "^1.9.7",
-    "sodium-native": "^4.3.1",
-    "yt-search": "^2.12.1",
-    "ytdl-core": "^4.11.5",
-    "zod": "^3.23.8"
+    "sodium-native": "^4.0.4",
+    "zod": "^3.22.4"
   }
 }
