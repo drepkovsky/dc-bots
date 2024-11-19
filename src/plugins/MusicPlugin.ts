@@ -8,16 +8,10 @@ import {
   NoSubscriberBehavior,
 } from '@discordjs/voice'
 import type { VoiceChannel } from 'discord.js'
-// import ffmpeg from 'ffmpeg-static'
 import play from 'play-dl'
 import { z } from 'zod'
 import { Logger } from '../logger'
 import { type Plugin, createBotFunction } from '../types/config'
-
-// Add this near the top of the file, after imports
-// if (ffmpeg) {
-//   process.env.FFMPEG_PATH = ffmpeg
-// }
 
 let isInitialized = false
 
