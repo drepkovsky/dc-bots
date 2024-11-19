@@ -1,10 +1,9 @@
 import type { VoiceConnection } from '@discordjs/voice'
 import { generateText, tool } from 'ai'
 import { Client, GatewayIntentBits, type Message } from 'discord.js'
-import { z } from 'zod'
 import { MODELS } from '../lib/ai'
 import { Logger } from '../logger'
-import type { BotConfig, Plugin, BotContext } from '../types/config'
+import type { BotConfig, BotContext, Plugin, ProgressUpdate } from '../types/config'
 
 type DiscordAIBotProps = {
   config: BotConfig
@@ -89,11 +88,7 @@ export class DiscordAIBot {
     }
   }
 
-  private createTools(message: Message) {
-    this.logger.debug('Creating tools', {
-      availableTools: Object.keys(this.pluginTools),
-    })
-
+  private createTools(message: Message, pendingMessage: Message) {
     return Object.entries(this.pluginTools).reduce(
       (acc, [name, toolDef]) => {
         acc[name] = tool({
@@ -107,6 +102,8 @@ export class DiscordAIBot {
               username: message.author.username,
               member: message.member!,
               message: message,
+              pendingMessage: pendingMessage,
+              bot: this,
             }
             return toolDef.execute({ ...params, __context: context })
           },
@@ -160,8 +157,12 @@ export class DiscordAIBot {
       content: message.content,
     })
 
-    const pendingMessage = await message.reply('Processing...')
-    const tools = this.createTools(message)
+    const pendingMessage = await message.reply(
+      this.config.processingMessages[
+        Math.floor(Math.random() * this.config.processingMessages.length)
+      ],
+    )
+    const tools = this.createTools(message, pendingMessage)
     this.logger.debug('Available tools', {
       toolNames: Object.keys(tools),
     })
@@ -318,6 +319,27 @@ export class DiscordAIBot {
       if (currentTime - conversation.lastInteractionTime >= this.CONVERSATION_TIMEOUT) {
         this.conversations.delete(key)
       }
+    }
+  }
+
+  public async updatePendingMessage(update: ProgressUpdate): Promise<string> {
+    try {
+      // Language: ${update.language || 'English'}`,
+      const response = await generateText({
+        model: MODELS.FAST.provider(MODELS.FAST.model),
+        system: `You are generating status messages for a Discord bot.
+                  Keep responses short, casual and fun.`,
+        prompt: `Generate a short status message (max 2 sentences) for this action: ${update.action}
+                  Additional context: ${JSON.stringify(update.details)}`,
+        maxTokens: 50,
+        temperature: 0.7,
+      })
+      return response.text
+    } catch (error) {
+      this.logger.error('Error generating status message', error)
+      return this.config.processingMessages[
+        Math.floor(Math.random() * this.config.processingMessages.length)
+      ]
     }
   }
 }

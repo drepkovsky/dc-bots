@@ -1,4 +1,6 @@
 import type { z, ZodObject } from 'zod'
+import type { MODELS } from '../lib/ai'
+import type { DiscordAIBot } from '../bot/DiscordAIBot'
 
 export type BotFunction = {
   description: string
@@ -21,6 +23,8 @@ export type BotContext = {
   username: string
   member: import('discord.js').GuildMember
   message: import('discord.js').Message
+  pendingMessage: import('discord.js').Message
+  bot: DiscordAIBot
 }
 
 export type Plugin = {
@@ -35,10 +39,17 @@ export type BotConfig = {
   nameAliases: string[]
   basePrompt: string
   forceLanguage: string
+  processingMessages: string[]
   triggerConditions: {
     mentionOnly: boolean
     keywordTriggers: string[]
     replyToBot: boolean
   }
   plugins: Plugin[]
+}
+
+export type ProgressUpdate = {
+  action: string
+  details?: Record<string, any>
+  language?: string
 }

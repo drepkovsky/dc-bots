@@ -87,10 +87,11 @@ class MusicPlayerManager {
   }
 
   async findSong(query: string): Promise<QueueItem | null> {
-    await this.ensureInitialized()
     this.logger.debug('Searching for song', { query })
+    await this.ensureInitialized()
+
     try {
-      // Try SoundCloud as primary source
+      // Try SoundCloud
       const soundcloudSearch = await play.search(query, {
         limit: 1,
         source: { soundcloud: 'tracks' },
@@ -98,6 +99,11 @@ class MusicPlayerManager {
 
       if (soundcloudSearch[0]) {
         const track = soundcloudSearch[0]
+        this.logger.debug('Found song on SoundCloud', {
+          title: track.name,
+          url: track.url,
+          duration: track.durationInSec,
+        })
         return {
           title: track.name || 'Unknown Title',
           url: track.url,
@@ -106,7 +112,8 @@ class MusicPlayerManager {
         }
       }
 
-      // If nothing found on SoundCloud, try Deezer
+      // Try Deezer
+      this.logger.debug('No SoundCloud results, trying Deezer')
       const deezerSearch = await play.search(query, {
         limit: 1,
         source: { deezer: 'track' },
@@ -114,6 +121,11 @@ class MusicPlayerManager {
 
       if (deezerSearch[0]) {
         const track = deezerSearch[0]
+        this.logger.debug('Found song on Deezer', {
+          title: track.title,
+          url: track.url,
+          duration: track.durationInSec,
+        })
         return {
           title: track.title || 'Unknown Title',
           url: track.url,
@@ -125,7 +137,11 @@ class MusicPlayerManager {
       this.logger.warn('No track found on any platform', { query })
       return null
     } catch (error) {
-      this.logger.error('Error searching for song', error)
+      this.logger.error('Error searching for song', {
+        error,
+        query,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      })
       return null
     }
   }
@@ -183,16 +199,24 @@ class MusicPlayerManager {
   }
 
   async playSong(guildId: string, song: QueueItem): Promise<string> {
-    this.logger.debug('Attempting to play song', { guildId, song })
+    this.logger.debug('Attempting to play song', {
+      guildId,
+      song: { title: song.title, url: song.url },
+    })
+
     const queue = this.getOrCreateQueue(guildId)
 
     try {
-      // Verify connection exists and is ready
       const connection = getVoiceConnection(guildId)
       if (!connection || connection.state.status !== 'ready') {
+        this.logger.error('Voice connection not ready', {
+          guildId,
+          connectionStatus: connection?.state.status,
+        })
         throw new Error('Voice connection not ready')
       }
 
+      this.logger.debug('Creating audio stream', { url: song.url })
       const stream = await play.stream(song.url, {
         quality: 1,
         discordPlayerCompatibility: true,
@@ -200,50 +224,85 @@ class MusicPlayerManager {
 
       const resource = createAudioResource(stream.stream, {
         inputType: stream.type,
-        // inlineVolume: true,
       })
 
-      //   resource.volume?.setVolume(queue.volume / 100)
       queue.currentItem = song
 
       // Setup player event listeners
       queue.player.removeAllListeners()
 
       queue.player.on('error', (error) => {
-        this.logger.error('Player error', error)
+        this.logger.error('Player error', {
+          error,
+          song: song.title,
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        })
         this.skipCurrent(guildId)
       })
 
       queue.player.on('stateChange', (oldState, newState) => {
         this.logger.debug('Player state changed', {
+          guildId,
+          song: song.title,
           oldState: oldState.status,
           newState: newState.status,
         })
       })
 
-      // Stop any existing playback
-      //   queue.player.stop(true)
-      // Play the new resource
       queue.player.play(resource)
       connection.subscribe(queue.player)
 
+      this.logger.info('Started playing song', {
+        guildId,
+        song: {
+          title: song.title,
+          duration: song.duration,
+          requestedBy: song.requestedBy,
+        },
+      })
+
       return `Now playing: ${song.title}`
     } catch (error) {
-      this.logger.error('Error playing song', error)
+      this.logger.error('Error playing song', {
+        error,
+        guildId,
+        song: song.title,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      })
       return 'Error playing the song. Please try another song or check the URL.'
     }
   }
 
   addToQueue(guildId: string, item: QueueItem): void {
+    this.logger.debug('Adding song to queue', {
+      guildId,
+      song: { title: item.title, url: item.url },
+    })
     const queue = this.getOrCreateQueue(guildId)
     queue.items.push(item)
+    this.logger.info('Song added to queue', {
+      guildId,
+      queueLength: queue.items.length,
+      song: { title: item.title, position: queue.items.length },
+    })
   }
 
   skipCurrent(guildId: string): QueueItem | null {
+    this.logger.debug('Skipping current song', { guildId })
     const queue = this.getOrCreateQueue(guildId)
-    queue.player.stop(true) // Add true to force stop
+    const currentSong = queue.currentItem
+    queue.player.stop(true)
     queue.currentItem = null
-    return queue.items.shift() || null
+    const nextSong = queue.items.shift()
+
+    this.logger.info('Skipped song', {
+      guildId,
+      skippedSong: currentSong?.title,
+      nextSong: nextSong?.title,
+      remainingInQueue: queue.items.length,
+    })
+
+    return nextSong || null
   }
 
   getQueue(guildId: string): QueueItem[] {
@@ -251,23 +310,37 @@ class MusicPlayerManager {
   }
 
   setVolume(guildId: string, volume: number): void {
+    this.logger.debug('Setting volume', { guildId, volume })
     const queue = this.getOrCreateQueue(guildId)
+    const oldVolume = queue.volume
     queue.volume = Math.max(0, Math.min(100, volume))
 
     if (queue.player.state.status === 'playing') {
       const resource = queue.player.state.resource
       if (resource?.volume) {
         resource.volume.setVolume(queue.volume / 100)
+        this.logger.info('Volume changed', {
+          guildId,
+          oldVolume,
+          newVolume: queue.volume,
+          currentSong: queue.currentItem?.title,
+        })
       }
     }
   }
 
   cleanup(guildId: string): void {
+    this.logger.debug('Cleaning up guild resources', { guildId })
     const queue = this.queues.get(guildId)
     if (queue) {
       queue.player.stop()
       queue.connection?.destroy()
       this.queues.delete(guildId)
+      this.logger.info('Cleaned up guild resources', {
+        guildId,
+        queueLength: queue.items.length,
+        currentSong: queue.currentItem?.title,
+      })
     }
   }
 
@@ -278,12 +351,15 @@ class MusicPlayerManager {
 }
 
 export function createMusicPlugin(): Plugin {
+  const logger = new Logger({ context: 'MusicPlugin' })
   const playerManager = new MusicPlayerManager()
 
   return {
     name: 'MusicPlugin',
     initialize: async () => {
+      logger.info('Initializing MusicPlugin')
       await initializeSoundCloud()
+      logger.info('MusicPlugin initialized successfully')
     },
     functions: {
       query: createBotFunction(
@@ -292,8 +368,15 @@ export function createMusicPlugin(): Plugin {
           query: z.string().describe('URL or search query for the song'),
         }),
         async (params, context) => {
+          logger.debug('Processing query command', {
+            query: params.query,
+            userId: context.userId,
+            guildId: context.guildId,
+          })
+
           const song = await playerManager.findSong(params.query)
           if (!song) {
+            logger.warn('Song not found', { query: params.query })
             return { error: 'Could not find the song.' }
           }
 
@@ -301,6 +384,13 @@ export function createMusicPlugin(): Plugin {
           playerManager.addToQueue(context.guildId, song)
 
           const queue = playerManager.getQueue(context.guildId)
+          logger.info('Song queued', {
+            song: song.title,
+            position: queue.length,
+            requestedBy: context.username,
+            guildId: context.guildId,
+          })
+
           return {
             status: 'queued',
             message: `Added to queue: ${song.title}`,
@@ -323,13 +413,37 @@ export function createMusicPlugin(): Plugin {
             return { error: 'Queue is empty. Use /query to add songs first.' }
           }
 
+          // Update status while joining channel
+          await context.pendingMessage.edit(
+            await context.bot.updatePendingMessage({
+              action: 'joining_voice',
+              details: {
+                channelName: voiceChannel.name,
+                guildName: voiceChannel.guild.name,
+              },
+              language: 'English', // Optional
+            }),
+          )
+
           const joined = await playerManager.joinChannel(voiceChannel, context.guildId)
+
           if (!joined) {
             return { error: 'Failed to join voice channel.' }
           }
 
           const song = queue[0]
-          queue.shift() // Remove the first song from queue
+          queue.shift()
+
+          // Update status while preparing song
+          await context.pendingMessage.edit(
+            await context.bot.updatePendingMessage({
+              action: 'preparing_song',
+              details: {
+                songTitle: song.title,
+                duration: song.duration,
+              },
+            }),
+          )
 
           const playResponse = await playerManager.playSong(context.guildId, song)
           return {
@@ -477,7 +591,9 @@ export function createMusicPlugin(): Plugin {
       ),
     },
     cleanup: async () => {
-      // Cleanup logic
+      logger.info('Cleaning up MusicPlugin')
+      // Add cleanup logic here
+      logger.info('MusicPlugin cleanup completed')
     },
   }
 }
