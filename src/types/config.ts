@@ -1,17 +1,26 @@
 import type { z, ZodObject } from 'zod'
 
-type BotFunction = {
+export type BotFunction = {
   description: string
-  params: ZodObject<any, any, any, any>
-  handler: (params: Record<string, any>) => Promise<void>
+  params: z.ZodType
+  handler: (params: z.infer<z.ZodType>, context: BotContext) => Promise<any>
 }
 
-export function createBotFunction<TSchema extends ZodObject<any, any, any, any>>(
+export function createBotFunction<TSchema extends z.ZodType>(
   description: string,
   params: TSchema,
-  handler: (params: z.infer<TSchema>) => Promise<any> | Promise<void>,
+  handler: (params: z.infer<TSchema>, context: BotContext) => Promise<any>,
 ): BotFunction {
   return { description, params, handler }
+}
+
+export type BotContext = {
+  guildId: string
+  channelId: string
+  userId: string
+  username: string
+  member: import('discord.js').GuildMember
+  message: import('discord.js').Message
 }
 
 export type Plugin = {

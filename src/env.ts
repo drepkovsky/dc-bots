@@ -5,6 +5,7 @@ export const env = createEnv({
   server: {
     DISCORD_TOKEN: z.string().min(1),
     GROQ_API_KEY: z.string().min(1),
+    ANTHROPIC_API_KEY: z.string().min(1),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   },
   client: {},
