@@ -43,4 +43,4 @@ ENV NODE_ENV=production \
     BUN_ENV=production
 
 # Run the application
-CMD ["bun", "run", "./dist/index.js"]
+CMD ["bun", "run", "./dist/slota.js"]
