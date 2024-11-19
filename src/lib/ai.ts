@@ -19,6 +19,6 @@ export const MODELS = {
   //   DETAILED: 'llama-3.1-8b-instant', // For complex responses
   DETAILED: {
     provider: anthropic,
-    model: 'claude-3-5-sonnet-20241022',
+    model: 'claude-3-5-haiku-20241022',
   }, // For complex responses
 } as const
