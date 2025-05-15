@@ -1,5 +1,5 @@
 import type { VoiceConnection } from '@discordjs/voice'
-import { generateText, tool } from 'ai'
+import { generateText, streamText, tool } from 'ai'
 import { Client, GatewayIntentBits, type Message } from 'discord.js'
 import { MODELS } from '../lib/ai'
 import { Logger } from '../logger'
@@ -15,6 +15,18 @@ type ConversationState = {
   context: string
   channelId: string
 }
+
+type MessagePart =
+  | {
+      type: 'text-delta'
+      text: string
+    }
+  | {
+      type: 'tool-call'
+      toolName: string
+      toolId: string
+      args: Record<string, any>
+    }
 
 export class DiscordAIBot {
   private client: Client
@@ -84,6 +96,7 @@ export class DiscordAIBot {
           params.__context = undefined
           return funcConfig.handler(params, context)
         },
+        formatDisplay: funcConfig.formatDisplay,
       }
     }
   }
@@ -173,7 +186,7 @@ export class DiscordAIBot {
         content: message.content,
       })
 
-      const { text, toolCalls, toolResults } = await generateText({
+      const { textStream, fullStream, toolCalls, toolResults } = streamText({
         model: needsDetailedResponse
           ? MODELS.DETAILED.provider(MODELS.DETAILED.model)
           : MODELS.FAST.provider(MODELS.FAST.model),
@@ -196,29 +209,64 @@ export class DiscordAIBot {
         toolChoice: 'auto',
       })
 
+      const messageParts: MessagePart[] = []
+      let lastEdit = Date.now()
+      let needsEdit = false
+
+      const editInterval = setInterval(() => {
+        if (needsEdit && Date.now() - lastEdit >= 1000) {
+          pendingMessage.edit(this.renderMessage(messageParts))
+          lastEdit = Date.now()
+          needsEdit = false
+        }
+      }, 100)
+
+      for await (const chunk of fullStream) {
+        if (chunk.type === 'text-delta') {
+          messageParts.push({
+            type: 'text-delta',
+            text: chunk.textDelta,
+          })
+          needsEdit = true
+        } else if (chunk.type === 'tool-call') {
+          messageParts.push({
+            type: 'tool-call',
+            toolName: chunk.toolName,
+            toolId: chunk.toolCallId,
+            args: chunk.args,
+          })
+          needsEdit = true
+        }
+      }
+
+      clearInterval(editInterval)
+      // Final edit to ensure last changes are shown
+      await pendingMessage.edit(this.renderMessage(messageParts))
+
+      const fullText = this.renderMessage(messageParts)
+
       this.logger.debug('AI response', {
-        text,
+        text: fullText,
         toolCalls,
         toolResults,
       })
 
-      if (!text) {
+      if (!fullText) {
         this.logger.debug('AI response is empty, skipping')
         await pendingMessage.delete()
         return
       }
 
-      await pendingMessage.edit(text)
       this.logger.debug('AI response completed', {
         originalMessage: message.content,
-        response: text,
+        response: fullText,
         actions: toolCalls || [],
         processingTime: Date.now() - message.createdTimestamp,
       })
 
       const updatedContextWithResponse = this.updateConversationContext(
         this.conversations.get(conversationKey)?.context || '',
-        `${this.config.name}: ${text}`,
+        `${this.config.name}: ${fullText}`,
       )
 
       this.conversations.set(conversationKey, {
@@ -234,6 +282,39 @@ export class DiscordAIBot {
       })
       await pendingMessage.edit('Sorry, I encountered an error while processing your message.')
     }
+  }
+
+  private renderMessage(messageParts: MessagePart[]): string {
+    let renderedMessage = ''
+    let currentText = ''
+
+    for (const part of messageParts) {
+      if (part.type === 'text-delta') {
+        currentText += part.text
+      } else if (part.type === 'tool-call') {
+        if (currentText) {
+          renderedMessage += currentText
+          currentText = ''
+        }
+
+        // Find the tool in pluginTools
+        const toolDef = this.pluginTools[part.toolName]
+        if (toolDef?.formatDisplay) {
+          // Use the formatDisplay function to display the tool call
+          const display = toolDef.formatDisplay(part.args)
+          renderedMessage += `\n> **${display}** \n `
+        } else {
+          // Fallback if tool not found in pluginTools
+          renderedMessage += `\n> **${part.toolName}** \n `
+        }
+      }
+    }
+
+    if (currentText) {
+      renderedMessage += currentText
+    }
+
+    return renderedMessage
   }
 
   private async checkMessageRelevance(content: string): Promise<boolean> {
@@ -322,24 +403,24 @@ export class DiscordAIBot {
     }
   }
 
-  public async updatePendingMessage(update: ProgressUpdate): Promise<string> {
-    try {
-      // Language: ${update.language || 'English'}`,
-      const response = await generateText({
-        model: MODELS.FAST.provider(MODELS.FAST.model),
-        system: `You are generating status messages for a Discord bot.
-                  Keep responses short, casual and fun.`,
-        prompt: `Generate a short status message (max 2 sentences) for this action: ${update.action}
-                  Additional context: ${JSON.stringify(update.details)}`,
-        maxTokens: 50,
-        temperature: 0.7,
-      })
-      return response.text
-    } catch (error) {
-      this.logger.error('Error generating status message', error)
-      return this.config.processingMessages[
-        Math.floor(Math.random() * this.config.processingMessages.length)
-      ]
-    }
-  }
+  // public async updatePendingMessage(update: ProgressUpdate): Promise<string> {
+  //   try {
+  //     // Language: ${update.language || 'English'}`,
+  //     const response = await generateText({
+  //       model: MODELS.FAST.provider(MODELS.FAST.model),
+  //       system: `You are generating status messages for a Discord bot.
+  //                 Keep responses short, casual and fun.`,
+  //       prompt: `Generate a short status message (max 2 sentences) for this action: ${update.action}
+  //                 Additional context: ${JSON.stringify(update.details)}`,
+  //       maxTokens: 50,
+  //       temperature: 0.7,
+  //     })
+  //     return response.text
+  //   } catch (error) {
+  //     this.logger.error('Error generating status message', error)
+  //     return this.config.processingMessages[
+  //       Math.floor(Math.random() * this.config.processingMessages.length)
+  //     ]
+  //   }
+  // }
 }

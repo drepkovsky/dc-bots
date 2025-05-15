@@ -6,14 +6,16 @@ export type BotFunction = {
   description: string
   params: z.ZodType
   handler: (params: z.infer<z.ZodType>, context: BotContext) => Promise<any>
+  formatDisplay: (params: z.infer<z.ZodType>) => string
 }
 
 export function createBotFunction<TSchema extends z.ZodType>(
   description: string,
   params: TSchema,
   handler: (params: z.infer<TSchema>, context: BotContext) => Promise<any>,
+  formatDisplay: (params: z.infer<TSchema>) => string,
 ): BotFunction {
-  return { description, params, handler }
+  return { description, params, handler, formatDisplay }
 }
 
 export type BotContext = {

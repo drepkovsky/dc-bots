@@ -480,6 +480,7 @@ export function createMusicPlugin(): Plugin {
             position: queue.length,
           }
         },
+        (params) => `Added to queue: ${params.query}`,
       ),
 
       play: createBotFunction(
@@ -540,6 +541,7 @@ export function createMusicPlugin(): Plugin {
             message: playResponse,
           }
         },
+        (params) => 'Playing song from queue',
       ),
 
       playAt: createBotFunction(
@@ -570,6 +572,7 @@ export function createMusicPlugin(): Plugin {
             message: playResponse,
           }
         },
+        (params) => `Playing song from queue at position ${params.position}`,
       ),
 
       playNext: createBotFunction(
@@ -593,25 +596,36 @@ export function createMusicPlugin(): Plugin {
             message: playResponse,
           }
         },
+        (params) => 'Playing next song in queue',
       ),
 
-      pause: createBotFunction('Pause current song', z.object({}), async (_params, context) => {
-        const queue = playerManager.getOrCreateQueue(context.guildId)
-        queue.player.pause()
-        return {
-          status: 'paused',
-          message: 'Playback paused.',
-        }
-      }),
+      pause: createBotFunction(
+        'Pause current song',
+        z.object({}),
+        async (_params, context) => {
+          const queue = playerManager.getOrCreateQueue(context.guildId)
+          queue.player.pause()
+          return {
+            status: 'paused',
+            message: 'Playback paused.',
+          }
+        },
+        (params) => 'Pausing current song',
+      ),
 
-      resume: createBotFunction('Resume paused song', z.object({}), async (_params, context) => {
-        const queue = playerManager.getOrCreateQueue(context.guildId)
-        queue.player.unpause()
-        return {
-          status: 'playing',
-          message: 'Playback resumed.',
-        }
-      }),
+      resume: createBotFunction(
+        'Resume paused song',
+        z.object({}),
+        async (_params, context) => {
+          const queue = playerManager.getOrCreateQueue(context.guildId)
+          queue.player.unpause()
+          return {
+            status: 'playing',
+            message: 'Playback resumed.',
+          }
+        },
+        (params) => 'Resuming current song',
+      ),
 
       stop: createBotFunction(
         'Stop playback and clear queue',
@@ -623,38 +637,44 @@ export function createMusicPlugin(): Plugin {
             message: 'Playback stopped and queue cleared.',
           }
         },
+        (params) => 'Stopping playback and clearing queue',
       ),
 
-      queue: createBotFunction('Show current queue', z.object({}), async (_params, context) => {
-        const queue = playerManager.getQueue(context.guildId)
-        const currentSong = playerManager.getCurrentSong(context.guildId)
+      queue: createBotFunction(
+        'Show current queue',
+        z.object({}),
+        async (_params, context) => {
+          const queue = playerManager.getQueue(context.guildId)
+          const currentSong = playerManager.getCurrentSong(context.guildId)
 
-        if (!currentSong && queue.length === 0) {
-          return {
-            status: 'empty',
-            message: 'No songs in queue.',
+          if (!currentSong && queue.length === 0) {
+            return {
+              status: 'empty',
+              message: 'No songs in queue.',
+            }
           }
-        }
 
-        return {
-          status: 'success',
-          nowPlaying: currentSong
-            ? {
-                title: currentSong.title,
-                url: currentSong.url,
-                duration: currentSong.duration,
-                requestedBy: currentSong.requestedBy,
-              }
-            : null,
-          queue: queue.map((song, index) => ({
-            position: index + 1,
-            title: song.title,
-            url: song.url,
-            duration: song.duration,
-            requestedBy: song.requestedBy,
-          })),
-        }
-      }),
+          return {
+            status: 'success',
+            nowPlaying: currentSong
+              ? {
+                  title: currentSong.title,
+                  url: currentSong.url,
+                  duration: currentSong.duration,
+                  requestedBy: currentSong.requestedBy,
+                }
+              : null,
+            queue: queue.map((song, index) => ({
+              position: index + 1,
+              title: song.title,
+              url: song.url,
+              duration: song.duration,
+              requestedBy: song.requestedBy,
+            })),
+          }
+        },
+        (params) => 'Showing current queue',
+      ),
 
       addToQueue: createBotFunction(
         'Add a song to the queue',
@@ -677,6 +697,7 @@ export function createMusicPlugin(): Plugin {
             message: `Added to queue: ${songs[0].title}`,
           }
         },
+        (params) => `Added to queue: ${params.query}`,
       ),
       getVolume: createBotFunction(
         'Get the current volume of the music player',
@@ -688,6 +709,7 @@ export function createMusicPlugin(): Plugin {
             volume: queue.volume,
           }
         },
+        (params) => 'Getting current volume',
       ),
 
       setVolume: createBotFunction(
@@ -706,6 +728,7 @@ export function createMusicPlugin(): Plugin {
             oldVolume,
           }
         },
+        (params) => `Volume set to ${params.volume}%`,
       ),
     },
     cleanup: async () => {
