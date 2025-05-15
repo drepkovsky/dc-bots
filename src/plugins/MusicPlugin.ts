@@ -678,6 +678,35 @@ export function createMusicPlugin(): Plugin {
           }
         },
       ),
+      getVolume: createBotFunction(
+        'Get the current volume of the music player',
+        z.object({}),
+        async (params, context) => {
+          const queue = playerManager.getOrCreateQueue(context.guildId)
+          return {
+            status: 'success',
+            volume: queue.volume,
+          }
+        },
+      ),
+
+      setVolume: createBotFunction(
+        'Set the volume of the music player',
+        z.object({ volume: z.number() }),
+        async (params, context) => {
+          const oldVolume = playerManager.getOrCreateQueue(context.guildId).volume
+          const newVolume = Math.max(0, Math.min(200, params.volume))
+
+          playerManager.setVolume(context.guildId, newVolume)
+
+          return {
+            status: 'success',
+            message: `Volume set to ${newVolume}%`,
+            volume: newVolume,
+            oldVolume,
+          }
+        },
+      ),
     },
     cleanup: async () => {
       logger.info('Cleaning up MusicPlugin')
