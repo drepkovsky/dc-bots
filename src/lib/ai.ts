@@ -13,12 +13,14 @@ export const anthropic = createAnthropic({
 export const MODELS = {
   FAST: {
     provider: groq,
-    model: 'llama-3.2-1b-preview',
+    model: 'llama-3.1-8b-instant',
   }, // For quick completions
   //   DETAILED: 'llama-3.1-70b-versatile', // For complex responses
   //   DETAILED: 'llama-3.1-8b-instant', // For complex responses
   DETAILED: {
+    // provider: groq,
+    // model: 'meta-llama/llama-4-scout-17b-16e-instruct',
     provider: anthropic,
-    model: 'claude-3-5-haiku-20241022',
+    model: 'claude-3-5-haiku-latest',
   }, // For complex responses
 } as const

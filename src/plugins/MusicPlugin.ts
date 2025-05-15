@@ -3,36 +3,61 @@ import {
   type VoiceConnection,
   createAudioPlayer,
   createAudioResource,
+  demuxProbe,
   getVoiceConnection,
   joinVoiceChannel,
   NoSubscriberBehavior,
 } from '@discordjs/voice'
+import { ytmp3 } from '@vreden/youtube_scraper'
 import type { VoiceChannel } from 'discord.js'
-import play from 'play-dl'
+import https from 'node:https'
+import { PassThrough } from 'node:stream'
+import yts from 'yt-search'
 import { z } from 'zod'
 import { Logger } from '../logger'
 import { type Plugin, createBotFunction } from '../types/config'
 
-let isInitialized = false
+// Track authentication state
+const isAuthenticated = false
+const authPendingData: { verification_url: string; user_code: string } | null = null
 
-async function initializeSoundCloud(): Promise<void> {
-  try {
-    const clientID = await play.getFreeClientID()
-    await play.setToken({
-      soundcloud: {
-        client_id: clientID,
-      },
-    })
-    isInitialized = true
-  } catch (error) {
-    throw new Error('Failed to initialize SoundCloud client: ' + error)
-  }
+// Define types for youtube-dl-exec responses
+type YoutubeTrack = {
+  title: string
+  webpage_url: string
+  url: string
+  duration: number
 }
+
+type YoutubeSearchResult = {
+  entries?: YoutubeTrack[]
+  title?: string
+  webpage_url?: string
+  url?: string
+  duration?: number
+}
+
+// Progress configuration
+const isInitialized = true
 
 function formatDuration(duration: number): string {
   const minutes = Math.floor(duration / 60)
-  const seconds = duration % 60
+  const seconds = Math.floor(duration % 60)
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
+// Format yt-search duration to seconds
+function parseDuration(timestamp: string): number {
+  const parts = timestamp.split(':').map(Number)
+  if (parts.length === 3) {
+    // Hours:Minutes:Seconds
+    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  }
+  if (parts.length === 2) {
+    // Minutes:Seconds
+    return parts[0] * 60 + parts[1]
+  }
+  return 0
 }
 
 type QueueItem = {
@@ -58,13 +83,6 @@ class MusicPlayerManager {
     this.logger = new Logger({ context: 'MusicPlayerManager' })
   }
 
-  private async ensureInitialized(): Promise<void> {
-    if (!isInitialized) {
-      this.logger.debug('Initializing SoundCloud client')
-      await initializeSoundCloud()
-    }
-  }
-
   private createGuildQueue(guildId: string): GuildQueue {
     this.logger.debug('Creating new guild queue', { guildId })
     const queue: GuildQueue = {
@@ -86,63 +104,98 @@ class MusicPlayerManager {
     return this.queues.get(guildId) || this.createGuildQueue(guildId)
   }
 
-  async findSong(query: string): Promise<QueueItem | null> {
-    this.logger.debug('Searching for song', { query })
-    await this.ensureInitialized()
+  private extractVideoId(url: string): string | null {
+    const match = url.match(
+      /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/(watch\?v=)?([^&?/]+)/,
+    )
+    return match ? match[5] : null
+  }
+
+  private extractListId(url: string): string | null {
+    const match = url.match(
+      /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/(playlist\?list=)?([^&?/]+)/,
+    )
+    return match ? match[5] : null
+  }
+
+  private videoUrlFromId(id: string): string {
+    return `https://www.youtube.com/watch?v=${id}`
+  }
+
+  async findSong(url: string): Promise<Omit<QueueItem, 'requestedBy'>[]> {
+    this.logger.debug('Searching for song', { query: url })
 
     try {
-      // Try SoundCloud
-      const soundcloudSearch = await play.search(query, {
-        limit: 1,
-        source: { soundcloud: 'tracks' },
-      })
+      // Check if query is a YouTube URL
+      if (url.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/)) {
+        this.logger.debug('Query is a direct YouTube URL, using youtube-dl-exec', { query: url })
 
-      if (soundcloudSearch[0]) {
-        const track = soundcloudSearch[0]
-        this.logger.debug('Found song on SoundCloud', {
-          title: track.name,
-          url: track.url,
-          duration: track.durationInSec,
-        })
-        return {
-          title: track.name || 'Unknown Title',
-          url: track.url,
-          requestedBy: '',
-          duration: formatDuration(track.durationInSec),
+        const videoId = this.extractVideoId(url)
+        const listId = this.extractListId(url)
+
+        if (videoId) {
+          const result = await yts({ videoId })
+          if (result) {
+            return [
+              {
+                title: result.title,
+                url: result.url,
+                duration: `${result.duration.seconds} seconds`,
+              },
+            ]
+          }
+        } else if (listId) {
+          const result = await yts({ listId })
+          if (result) {
+            return result.videos?.map((entry) => ({
+              title: entry.title,
+              url: this.videoUrlFromId(entry.videoId),
+              duration: `${entry.duration.seconds} seconds`,
+            }))
+          }
         }
       }
 
-      // Try Deezer
-      this.logger.debug('No SoundCloud results, trying Deezer')
-      const deezerSearch = await play.search(query, {
-        limit: 1,
-        source: { deezer: 'track' },
-      })
+      // Use yt-search for regular queries
+      this.logger.debug('Searching with yt-search', { query: url })
+      const searchResults = await yts(url)
 
-      if (deezerSearch[0]) {
-        const track = deezerSearch[0]
-        this.logger.debug('Found song on Deezer', {
-          title: track.title,
-          url: track.url,
-          duration: track.durationInSec,
+      if (searchResults.videos && searchResults.videos.length > 0) {
+        const video = searchResults.videos[0]
+
+        this.logger.debug('Found song via yt-search', {
+          title: video.title,
+          url: video.url,
+          duration: video.timestamp,
         })
-        return {
-          title: track.title || 'Unknown Title',
-          url: track.url,
-          requestedBy: '',
-          duration: formatDuration(track.durationInSec),
-        }
+
+        return [
+          {
+            title: video.title,
+            url: video.url,
+            duration: video.timestamp,
+          },
+        ]
       }
 
-      this.logger.warn('No track found on any platform', { query })
-      return null
+      this.logger.warn('No results found with yt-search', {
+        query: url,
+      })
+
+      return []
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorStack = error instanceof Error ? error.stack : undefined
+
       this.logger.error('Error searching for song', {
-        error,
-        query,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        error: {
+          message: errorMessage,
+          stack: errorStack,
+        },
+        query: url,
       })
-      return null
+
+      return []
     }
   }
 
@@ -217,14 +270,18 @@ class MusicPlayerManager {
       }
 
       this.logger.debug('Creating audio stream', { url: song.url })
-      const stream = await play.stream(song.url, {
-        quality: 1,
-        discordPlayerCompatibility: true,
-      })
 
-      const resource = createAudioResource(stream.stream, {
-        inputType: stream.type,
+      // Use youtube-dl-exec to get the audio stream
+      const result = await ytmp3(song.url)
+      if (!result.status) {
+        throw new Error('Failed to get audio stream')
+      }
+      const passThrough = new PassThrough()
+      https.get(result.download.url, (res) => {
+        res.pipe(passThrough)
       })
+      const { stream: demuxedStream, type } = await demuxProbe(passThrough)
+      const resource = createAudioResource(demuxedStream, { inputType: type })
 
       queue.currentItem = song
 
@@ -247,6 +304,29 @@ class MusicPlayerManager {
           oldState: oldState.status,
           newState: newState.status,
         })
+
+        // If playback has ended, play the next song automatically
+        if (oldState.status === 'playing' && newState.status === 'idle') {
+          this.logger.info('Song ended, playing next if available', {
+            guildId,
+            finishedSong: song.title,
+          })
+
+          // Get the next song in the queue
+          const nextSong = queue.items.shift()
+          if (nextSong) {
+            // Auto-play next song
+            this.playSong(guildId, nextSong).catch((error) => {
+              this.logger.error('Error auto-playing next song', {
+                error,
+                nextSong: nextSong.title,
+              })
+            })
+          } else {
+            queue.currentItem = null
+            this.logger.info('Queue finished, no more songs', { guildId })
+          }
+        }
       })
 
       queue.player.play(resource)
@@ -261,7 +341,7 @@ class MusicPlayerManager {
         },
       })
 
-      return `Now playing: ${song.title}`
+      return `Now playing: ${song.title} (${song.duration})`
     } catch (error) {
       this.logger.error('Error playing song', {
         error,
@@ -358,7 +438,6 @@ export function createMusicPlugin(): Plugin {
     name: 'MusicPlugin',
     initialize: async () => {
       logger.info('Initializing MusicPlugin')
-      await initializeSoundCloud()
       logger.info('MusicPlugin initialized successfully')
     },
     functions: {
@@ -374,18 +453,22 @@ export function createMusicPlugin(): Plugin {
             guildId: context.guildId,
           })
 
-          const song = await playerManager.findSong(params.query)
-          if (!song) {
+          const songs = await playerManager.findSong(params.query)
+          if (!songs.length) {
             logger.warn('Song not found', { query: params.query })
             return { error: 'Could not find the song.' }
           }
 
-          song.requestedBy = context.username
-          playerManager.addToQueue(context.guildId, song)
+          for (const song of songs) {
+            playerManager.addToQueue(context.guildId, {
+              ...song,
+              requestedBy: context.username,
+            })
+          }
 
           const queue = playerManager.getQueue(context.guildId)
           logger.info('Song queued', {
-            song: song.title,
+            song: songs[0].title,
             position: queue.length,
             requestedBy: context.username,
             guildId: context.guildId,
@@ -393,7 +476,7 @@ export function createMusicPlugin(): Plugin {
 
           return {
             status: 'queued',
-            message: `Added to queue: ${song.title}`,
+            message: `Added to queue: ${songs[0].title} ${songs.length > 1 ? `and ${songs.length - 1} more` : ''}`,
             position: queue.length,
           }
         },
@@ -577,22 +660,30 @@ export function createMusicPlugin(): Plugin {
         'Add a song to the queue',
         z.object({ query: z.string() }),
         async (params, context) => {
-          const song = await playerManager.findSong(params.query)
-          if (!song) {
+          const songs = await playerManager.findSong(params.query)
+          if (!songs.length) {
             return { error: 'Could not find the song.' }
           }
 
-          playerManager.addToQueue(context.guildId, song)
+          for (const song of songs) {
+            playerManager.addToQueue(context.guildId, {
+              ...song,
+              requestedBy: context.username,
+            })
+          }
+
           return {
             status: 'queued',
-            message: `Added to queue: ${song.title}`,
+            message: `Added to queue: ${songs[0].title}`,
           }
         },
       ),
     },
     cleanup: async () => {
       logger.info('Cleaning up MusicPlugin')
-      // Add cleanup logic here
+      // Log out of YouTube if needed
+      if (isAuthenticated) {
+      }
       logger.info('MusicPlugin cleanup completed')
     },
   }
